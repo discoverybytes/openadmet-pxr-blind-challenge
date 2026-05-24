@@ -1,0 +1,206 @@
+# OpenADMET PXR Structure Track — discoverybytes
+
+**Challenge:** OpenADMET Blind Challenge — Structure Track  
+**Target:** Human Pregnane X Receptor (PXR / NR1I2)  
+**Task:** Predict binding poses for 184 drug-like ligands  
+**Metrics:** LDDT-PLI · BiSyRMSD · LDDT-LP
+
+---
+
+## Summary
+
+Boltz co-folding predictions using two PXR crystal structure templates.
+Per-ligand model selection by highest interface pTM score (iptm).
+No post-processing of predicted coordinates.
+
+---
+
+## Approach
+
+### Crystal templates
+
+We chose to run Boltz with structural templates to guide pocket conformation.
+The most important single decision was **which crystal structure to use**.
+
+Two PXR templates were used in the final submission:
+
+| Run | Template | PDB | Models | Notes |
+|---|---|---|---|---|
+| Run 1 (base) | 6TFIB, H12-helix free | 6TFI | 50 per ligand | H12 helix (residues 410–430) removed to allow free conformational sampling |
+| Run 2 (cross) | 4NY9 | 4NY9 | 50 per ligand | Genuinely different pocket conformation — most productive cross-template |
+
+**Why H12-free:** Crystal structure Ca variability analysis across 18 PXR structures showed the H12 activation helix (residues 410–430) is the most conformationally variable region (1.5–2.2 Å mean displacement). Anchoring H12 to the template penalises ligands whose binding mode prefers a different H12 orientation. Removing it allows Boltz to predict H12 position freely per ligand.
+
+**Why 4NY9:** PXR has a large, flexible binding pocket that adopts genuinely different conformations depending on the bound ligand. 4NY9 represents a distinct crystal form from 6TFIB. Early template diversity experiments showed that different ligands prefer different starting conformations — no single template dominates across the full 184-ligand set.
+
+### Model selection
+
+For each ligand, 50 diffusion models were generated per run (100 total across both runs). The single model with the highest **iptm** (interface predicted TM-score) was selected, regardless of which run it came from.
+
+### 50 diffusion samples
+
+Running 50 models per ligand rather than fewer consistently improves best-of-N iptm selection. Hard-floor ligands (those that never reach high iptm on any template) were identified; additional models do not help them. For the majority of ligands, 50 models represents a practical cost–quality trade-off.
+
+---
+
+## Score Progression
+
+The following highlights the milestones that produced meaningful gains.
+All scores are LDDT-PLI on the live leaderboard (~92 of 184 ligands scored).
+
+| LDDT-PLI | Key change |
+|---|---|
+| 0.4763 | Baseline: single template (6TFIB), 3 models per ligand |
+| 0.4886 | +0.012 — first template diversity experiment (added 7N2A) |
+| 0.5053 | +0.017 — expanded to 3 templates (6TFIB, 7N2A, 5X0R); crossed 0.50 |
+| 0.5114 | +0.006 — 5 templates, 10 models per ligand |
+| 0.5221 | +0.011 — 6HTYB template added at 50 models |
+| 0.5288 | +0.007 — structural consensus voting across all runs identified 7 ligands with genuinely different binding modes across templates |
+| 0.5318 | +0.003 — full 50-model runs on 6TFIB H12-free and 4NY9; iptm-threshold swap selection |
+
+The largest gains came from **template diversity** at each step. Adding a genuinely different crystal form consistently outperformed running more models on existing templates.
+
+---
+
+## Final Submission
+
+After exploring many configurations, the goal was to produce a **clean two-run submission** rather than one that depends on accumulating results across many different experimental configurations.
+
+The final submission selects, for each of the 184 ligands, the Boltz model with the highest iptm from exactly two runs:
+
+1. **6TFIB H12-free, 50 models** — provides the base prediction for ~91 ligands  
+2. **4NY9, 50 models** — provides the best model for ~93 ligands
+
+No threshold is applied. The better run wins for each ligand outright.
+
+The 4NY9 run improves most substantially on ligands where the 6TFIB pocket geometry is a poor fit. The seven ligands with the largest 4NY9 advantage (Δiptm > 0.010) are:
+
+| Ligand | H12-free iptm | 4NY9 iptm | Δiptm |
+|---|---|---|---|
+| x00046-1 | 0.881 | 0.910 | +0.029 |
+| x01502-1 | 0.926 | 0.946 | +0.019 |
+| x01464-1 | 0.906 | 0.924 | +0.018 |
+| x00543-1 | 0.916 | 0.931 | +0.015 |
+| x00337-1 | 0.913 | 0.927 | +0.014 |
+| x01438-1 | 0.875 | 0.886 | +0.011 |
+| x03405-1 | 0.945 | 0.956 | +0.010 |
+
+An additional 86 ligands show marginal 4NY9 advantage (Δiptm < 0.010), included in the no-threshold version since any improvement from the available data is taken.
+
+---
+
+## Additional Results
+
+The following were all tested with direct leaderboard feedback and produced no improvement or a regression.
+
+**Post-processing of predicted coordinates**
+- YASARA AMBER14 energy minimisation (backbone fixed, side chains + ligand free)
+- YASARA YAMBER3 (implicit GB/SA solvent)
+- RDKit MMFF94s position-restrained minimisation (spring constants k=100 and k=50 kcal/mol/Å²)
+- MD simulation poses (GROMACS/AMBER, 3 ligands tested)
+
+**Template modifications**
+- All 14 available PXR crystal structure templates screened against hard-floor ligands — 6TFIB, 4NY9, 7N2A, 5X0R, 1NRLB, 6HTYB, 7RIU, 3CTBA, 6DUPA, 6P2BA, 8SVTA, 4NY9_MIN (YASARA-minimised), 6S41, 1SKX
+
+**Alternative model selection criteria**
+- Ligand pLDDT (lig_plddt)
+- Composite lig_plddt × pocket pLDDT
+- Run-mean iptm consistency
+- Structural consensus clustering (DBSCAN on pocket-aligned poses)
+- Interface pLDDT (ipde) rescoring
+- GNINA rescoring
+
+**Boltz sampling parameters**
+- step_scale=1.0 (more concentrated sampling)
+- step_scale=2.0 (more exploratory)
+- recycling_steps=6 vs default 3
+
+**Clash correction**
+- Replacing 21 clashing poses with clash-free alternatives from a different template run
+- Rigid-body clash relief (translate + rotate the ligand as a rigid body to resolve vdW overlap)
+
+---
+
+## Key Observations
+
+**iptm is our best selection criterion, within fixed sampling parameters.**
+It is valid for comparing models within a ligand across templates and runs, provided all compared models used the same step_scale and recycling_steps settings. It is not valid for comparing models generated under different sampling parameters — a model with higher iptm from concentrated sampling (step_scale=1.0) can be confidently wrong relative to the crystal structure.
+
+**Post-processing of Boltz-predicted poses did not help.**
+Any classical energy minimisation — regardless of force field or restraint strength — moves the ligand from its predicted position toward a classical mechanical energy minimum that diverges from the Boltz-predicted binding mode. The scorer rewards the raw Boltz geometry. The only safe structural intervention is one that preserves the predicted binding mode exactly (e.g. rigid-body clash relief), and even that shows no LDDT-PLI benefit at single-ligand scale.
+
+**Template diversity is the primary driver of score improvement.**
+Each genuinely different crystal form produces structurally distinct predictions for some subset of ligands. The per-ligand best-iptm selection then captures the most confident prediction across the available conformational space. Returns diminished as more templates were added: 6HTYB had a 70% hit rate in a 20-ligand pilot; later additions (7RIU, 3CTBA, 6S41, 1SKX) produced ≤ 30% hit rates with sub-threshold gains.
+
+---
+
+## Reproduction
+
+### Requirements
+
+```
+python >= 3.10
+rdkit
+numpy
+```
+
+### Boltz runs
+
+Both prediction runs used [Boltz-1](https://github.com/jwohlwend/boltz) with default parameters (step_scale=1.5, recycling_steps=3, 50 diffusion samples per ligand):
+
+```bash
+# Run 1 — 6TFIB H12-free template
+boltz predict 6TFIB_YASARA_H12FREE_SCREEN \
+    --output_format pdb \
+    --num_diffusion_samples 50 \
+    --out_dir 6TFIB_YASARA_H12FREE_SCREEN_50_OUT
+
+# Run 2 — 4NY9 template
+boltz predict FRAGS_184_4NY9 \
+    --output_format pdb \
+    --num_diffusion_samples 50 \
+    --out_dir FRAGS_184_4NY9_50_OUT
+```
+
+Each input directory contains one YAML file per ligand. Each YAML specifies the PXR protein sequence, a pre-computed MSA, the template CIF, and the ligand SMILES:
+
+```yaml
+properties:
+- affinity:
+    binder: B
+sequences:
+- protein:
+    id: [A]
+    msa: MSA/PXR_fragments_msa_0.csv
+    sequence: MKKGHHHHHHGSERTGTQ...   # full PXR LBD sequence
+    templates:
+    - cif: 6TFIB_YASARA_H12FREE_template.cif
+      threshold: 0.0
+- ligand:
+    id: [B]
+    smiles: CN(C)C(=O)c1cc2ccccc2o1   # per-ligand SMILES
+version: 1
+```
+
+The template CIF for Run 2 replaces `6TFIB_YASARA_H12FREE_template.cif` with `4NY9_template.cif`. All other fields are identical across both runs.
+
+**Template preparation:** Both CIFs were prepared with YASARA (energy minimisation, gap-filling, H-bond optimisation). The H12-free template was generated by deleting residues 410–430 from the YASARA-prepared 6TFIB structure before CIF export.
+
+### Building the submission
+
+```bash
+python execution/build_2run_best_submission.py \
+    --run1 <path_to_6TFIB_H12FREE_predictions> \
+    --run2 <path_to_4NY9_50_predictions> \
+    --output <output.zip>
+```
+
+To restrict to swaps with Δiptm > 0.010 only (7 ligands from 4NY9):
+
+```bash
+python execution/build_2run_best_submission.py \
+    --run1 <path_to_6TFIB_H12FREE_predictions> \
+    --run2 <path_to_4NY9_50_predictions> \
+    --threshold 0.010 \
+    --output <output.zip>
+```

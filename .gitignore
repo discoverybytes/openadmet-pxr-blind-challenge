@@ -1,0 +1,5 @@
+# Ignore everything except the challenge track subfolders
+*
+!.gitignore
+!structure-prediction/
+!structure-prediction/**
