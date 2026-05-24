@@ -3,3 +3,5 @@
 !.gitignore
 !structure-prediction/
 !structure-prediction/**
+!activity-prediction/
+!activity-prediction/**
