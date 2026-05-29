@@ -93,11 +93,12 @@ feature-based models without large-scale molecular pretraining.
 ### Alternative Model Architectures
 
 **Uni-Mol**: A 3D molecular transformer pretrained on 209 million conformers. Fine-tuned
-on the PXR training set with 10-conformer augmentation — each molecule represented as 10
-independently generated 3D conformers during training, with predictions averaged at
-inference. Standalone OOF RAE ~0.645. Despite weaker standalone performance than
-Chemprop, Uni-Mol's 3D geometric representations provide genuinely complementary signal
-and transferred well to the test set.
+on the PXR training set using a single conformer per molecule. At inference, predictions
+were averaged across 10 randomised SMILES representations per compound — different atom
+orderings produce different RDKit conformers, reducing prediction variance. Standalone
+OOF RAE ~0.645. Despite weaker standalone performance than Chemprop, Uni-Mol's 3D
+geometric representations provide genuinely complementary signal and transferred well to
+the test set.
 
 **MolE + LightGBM**: MolE is a molecular foundation model pretrained on large-scale
 unlabelled chemical data. Its fixed embeddings fed into a LightGBM adaptor achieved OOF
@@ -169,6 +170,22 @@ The OOF→test generalisation gain of 0.031 RAE (predictions improved relative t
 estimate on the blinded test set) reflects a consistent transductive effect observed
 across the project: models trained for the test distribution — even marginally — benefit
 more than their OOF scores suggest.
+
+---
+
+## Phase 2: Unblinded Analysis and Final Submission
+
+Midway through the competition, data was released for half of the test set. Scoring simultaneously switched to the full 513-compound set.
+
+**Assessment of v49 on the 253 unblinded compounds**: MAE=0.428, RAE=0.536, systematic bias +0.09 (mild overprediction). Ninety percent of predictions fell within 1.0 pEC50 unit.
+
+**Floor problem**: The principal failure was systematic overprediction of truly inactive compounds. A small cohort of compounds with very low true activity were predicted at 4.0–4.7, errors of +2.0 to +2.6 units. These inactives were structurally similar to highly active training compounds (Tanimoto 0.50–0.58; nearest training neighbours had pEC50 5.8–6.8) — the model recognised familiar scaffolds and over-predicted activity. Adding these compounds to the training set was the primary fix available.
+
+**Retraining**: Chemprop (JG_MAE) and Uni-Mol were retrained on the expanded 3,639-compound dataset (3,386 original + 253 unblinded). The Ridge stack was refitted on the original 3,386-compound out-of-fold predictions to preserve a clean validation. MolE was not retrained — its embeddings are frozen and retraining only the LightGBM adaptor on 253 additional points gives minimal gain.
+
+**Tautomer patch**: One compound (OADMET-0006514) had an unblinded true pEC50 of 2.725. Despite the tautomer correction, the model continued to predict 3.53 because the incorrect tautomeric SMILES remained in the training set and the delta offset was insufficient. The final submission value was replaced directly with the known true value.
+
+**Final submission**: JG_MAE_v2 + Uni-Mol_v2 + MolE+LightGBM, Ridge stack. OOF RAE on the original 3,386 compounds: 0.567.
 
 ---
 
